@@ -1,10 +1,12 @@
 package blc
 
 import (
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"math/big"
 	"time"
+
 	"wxw-blockchain/database"
 
 	log "github.com/corgi-kx/logcustom"
@@ -25,9 +27,9 @@ func NewBlockchain() *Blockchain {
 //创建创世区块交易信息
 func (blc *Blockchain) CreataGenesisTransaction(address string, value int) {
 	//创世区块数据
-	txi := TXInput{[]byte{}, -1, nil, nil}
+	txi := TXInput{[]byte{}, -1, ""}
 
-	txo := TXOutput{value, []byte("genesisBlock")}
+	txo := TXOutput{value, address}
 
 	ts := Transaction{nil, []TXInput{txi}, []TXOutput{txo}}
 
@@ -36,8 +38,6 @@ func (blc *Blockchain) CreataGenesisTransaction(address string, value int) {
 	tss := []Transaction{ts}
 	//开始生成区块链的第一个区块
 	blc.newGenesisBlockchain(tss)
-
-	fmt.Println("已成生成创世区块")
 }
 
 func (blc *Blockchain) newGenesisBlockchain(transaction []Transaction) {
@@ -61,7 +61,7 @@ func (blc *Blockchain) AddBlock(block *Block) {
 	}
 }
 
-//增加区块到区块链里面
+//创建UTXO交易实例
 func (blc *Blockchain) CreateTransaction(from, to string, amount string) {
 	//判断一下是否已生成创世区块
 	if len(blc.BD.View([]byte(LastBlockHashMapping), database.BlockBucket)) == 0 {
@@ -69,9 +69,9 @@ func (blc *Blockchain) CreateTransaction(from, to string, amount string) {
 		return
 	}
 
-	fromSlice := []string{}
-	toSlice := []string{}
-	amountSlice := []int{}
+	var fromSlice []string
+	var toSlice []string
+	var amountSlice []int
 
 	//对传入的信息进行校验检测
 	err := json.Unmarshal([]byte(from), &fromSlice)
@@ -94,55 +94,25 @@ func (blc *Blockchain) CreateTransaction(from, to string, amount string) {
 		return
 	}
 
-	for i, _ := range fromSlice {
-		if i < len(fromSlice)-1 {
-			fromSlice = append(fromSlice[:i], fromSlice[i+1:]...)
-			toSlice = append(toSlice[:i], toSlice[i+1:]...)
-			amountSlice = append(amountSlice[:i], amountSlice[i+1:]...)
-		} else {
-			fromSlice = append(fromSlice[:i])
-			toSlice = append(toSlice[:i])
-			amountSlice = append(amountSlice[:i])
-		}
-	}
-
-	for i, _ := range toSlice {
-		if i < len(fromSlice)-1 {
-			fromSlice = append(fromSlice[:i], fromSlice[i+1:]...)
-			toSlice = append(toSlice[:i], toSlice[i+1:]...)
-			amountSlice = append(amountSlice[:i], amountSlice[i+1:]...)
-		} else {
-			fromSlice = append(fromSlice[:i])
-			toSlice = append(toSlice[:i])
-			amountSlice = append(amountSlice[:i])
-		}
-	}
-
-	for i, v := range amountSlice {
-		if v < 0 {
-			log.Error("转账金额不可小于0，已将此笔交易剔除")
-			if i < len(fromSlice)-1 {
-				fromSlice = append(fromSlice[:i], fromSlice[i+1:]...)
-				toSlice = append(toSlice[:i], toSlice[i+1:]...)
-				amountSlice = append(amountSlice[:i], amountSlice[i+1:]...)
-			} else {
-				fromSlice = append(fromSlice[:i])
-				toSlice = append(toSlice[:i])
-				amountSlice = append(amountSlice[:i])
-			}
-		}
-	}
-
 	var tss []Transaction
 
+	txHash, _ := hex.DecodeString("d3090321b728bdc3499cf92eee2c303a3da0bba9e6c3779e89779b7d9ebe6cc2")
+	tXInput := TXInput{
+		TxHash:    txHash,
+		Index:     0,
+		Signature: fromSlice[0],
+	}
+	tXOutput := TXOutput{4, toSlice[0]}
 	//打包交易的核心操作
-	newTXInput := []TXInput{}
-	newTXOutput := []TXOutput{}
+	newTXInput := []TXInput{tXInput}
+	newTXOutput := []TXOutput{tXOutput}
+	tXOutput = TXOutput{10 - 4, fromSlice[0]}
+	newTXOutput = append(newTXOutput, tXOutput)
 
-	ts := Transaction{nil, newTXInput, newTXOutput[:]}
+	ts := Transaction{nil, newTXInput, newTXOutput}
 	ts.hash()
 	tss = append(tss, ts)
-	//blc.Blocks = append(blc.Blocks, newBlock)
+	blc.addBlockchain(tss)
 }
 
 //将交易添加进区块链中(内含挖矿操作)
@@ -157,6 +127,72 @@ func (blc *Blockchain) addBlockchain(transaction []Transaction) {
 
 	//将区块添加到本地库中
 	blc.AddBlock(newBlock)
+}
+
+//用户未花费
+func (blc *Blockchain) UTXOs(address string) []UTXO {
+	var txOutputs []UTXO
+	txInputs := make(map[string][]int)
+	bci := NewBlockchainIterator(blc)
+	for {
+		block := bci.Next()
+		for _, ts := range block.Transactions {
+			if len(block.PreHash) != 0 {
+				for _, in := range ts.Vint {
+					//用户花费UTXO
+					if in.Signature == address {
+						key := hex.EncodeToString(in.TxHash)
+						txInputs[key] = append(txInputs[key], in.Index)
+					}
+				}
+			}
+
+			for index, ou := range ts.Vout {
+				if ou.PublicKeyHash == address {
+					if txInputs != nil {
+						if len(txInputs) != 0 {
+							for txHash, indexArray := range txInputs {
+								for _, v := range indexArray {
+									if v == index && txHash == hex.EncodeToString(ts.TxHash) {
+										continue
+									} else {
+										txOutputs = append(txOutputs, UTXO{
+											Hash:  ts.TxHash,
+											Index: index,
+											Vout:  ou,
+										})
+									}
+								}
+							}
+						} else {
+							txOutputs = append(txOutputs, UTXO{
+								Hash:  ts.TxHash,
+								Index: index,
+								Vout:  ou,
+							})
+						}
+					}
+				}
+			}
+		}
+
+		var hashInt big.Int
+		hashInt.SetBytes(block.PreHash)
+		if hashInt.Cmp(big.NewInt(0)) == 0 {
+			break
+		}
+	}
+	return txOutputs
+}
+
+//传入地址 返回地址余额信息
+func (blc *Blockchain) GetBalance(address string) int {
+	var balance int
+	utxos := blc.UTXOs(address)
+	for _, utxo := range utxos {
+		balance += utxo.Vout.Value
+	}
+	return balance
 }
 
 //打印区块链详细信息
@@ -178,13 +214,10 @@ func (blc *Blockchain) PrintAllBlockInfo() {
 				fmt.Printf("			交易id:  %x\n", vIn.TxHash)
 				fmt.Printf("			索引:    %d\n", vIn.Index)
 				fmt.Printf("			签名信息:    %x\n", vIn.Signature)
-				fmt.Printf("			公钥:    %x\n", vIn.PublicKey)
-				fmt.Printf("			地址:    %s\n", vIn.PublicKey)
 			}
 			fmt.Println("  	  tx_output：")
 			for index, vOut := range v.Vout {
 				fmt.Printf("			金额:    %d    \n", vOut.Value)
-				fmt.Printf("			公钥Hash:    %x    \n", vOut.PublicKeyHash)
 				fmt.Printf("			地址:    %s\n", vOut.PublicKeyHash)
 				if len(v.Vout) != 1 && index != len(v.Vout)-1 {
 					fmt.Println("			---------------")

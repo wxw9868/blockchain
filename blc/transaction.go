@@ -40,7 +40,6 @@ func (t *Transaction) getTransBytes() []byte {
 		transBytes = append(transBytes, v.TxHash...)
 		transBytes = append(transBytes, util.Int64ToBytes(int64(v.Index))...)
 		transBytes = append(transBytes, v.Signature...)
-		transBytes = append(transBytes, v.PublicKey...)
 	}
 	for _, v := range t.Vout {
 		transBytes = append(transBytes, util.Int64ToBytes(int64(v.Value))...)

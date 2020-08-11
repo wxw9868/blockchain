@@ -9,8 +9,8 @@ type blockchainIterator struct {
 }
 
 //获取区块迭代器实例
-func NewBlockchainIterator(bc *Blockchain) *blockchainIterator {
-	blockchainIterator := &blockchainIterator{bc.BD.View([]byte(LastBlockHashMapping), database.BlockBucket), bc.BD}
+func NewBlockchainIterator(blc *Blockchain) *blockchainIterator {
+	blockchainIterator := &blockchainIterator{blc.BD.View([]byte(LastBlockHashMapping), database.BlockBucket), blc.BD}
 	return blockchainIterator
 }
 
