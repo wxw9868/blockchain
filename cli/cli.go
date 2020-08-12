@@ -6,8 +6,6 @@ import (
 	"log"
 	"os"
 	"strconv"
-
-	"wxw-blockchain/blc"
 )
 
 type CLI struct {
@@ -21,27 +19,6 @@ func printUsage() {
 	fmt.Println("\ttransfer -from DATA -to DATA -amount DATA         进行转账操作")
 	fmt.Println("\tprintChain                                        查看所有区块信息")
 	fmt.Println("------------------------------------------------------------------------------")
-}
-
-func (cli *CLI) genesis(address string, value int) {
-	newBlc := blc.NewBlockchain()
-	newBlc.CreataGenesisTransaction(address, value)
-}
-
-func (cli *CLI) getBalance(address string) {
-	newBlc := blc.NewBlockchain()
-	balance := newBlc.GetBalance(address)
-	fmt.Printf("地址:%s的余额为：%d\n", address, balance)
-}
-
-func (cli *CLI) transfer(from, to string, amount string) {
-	newBlc := blc.NewBlockchain()
-	newBlc.CreateTransaction(from, to, amount)
-}
-
-func (cli *CLI) printChain() {
-	newBlc := blc.NewBlockchain()
-	newBlc.PrintAllBlockInfo()
 }
 
 func (cli *CLI) Run() {
@@ -107,7 +84,6 @@ func (cli *CLI) Run() {
 			printUsage()
 			os.Exit(1)
 		}
-		fmt.Println(*flagBalance)
 		cli.getBalance(*flagBalance)
 	}
 

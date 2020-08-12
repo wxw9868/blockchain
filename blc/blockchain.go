@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"math/big"
+	"os"
 	"time"
 
 	"wxw-blockchain/database"
@@ -95,24 +96,47 @@ func (blc *Blockchain) CreateTransaction(from, to string, amount string) {
 	}
 
 	var tss []Transaction
+	newTXInput := []TXInput{}
+	newTXOutput := []TXOutput{}
 
-	txHash, _ := hex.DecodeString("d3090321b728bdc3499cf92eee2c303a3da0bba9e6c3779e89779b7d9ebe6cc2")
-	tXInput := TXInput{
-		TxHash:    txHash,
-		Index:     0,
-		Signature: fromSlice[0],
+	for k, address := range fromSlice {
+		utxos := blc.UTXOs(address)
+		balance, indexs := blc.doUTXOs(utxos, amountSlice[k])
+		for txHash, indexArray := range indexs {
+			txHashBytes, _ := hex.DecodeString(txHash)
+			for _, index := range indexArray {
+				tXInput := TXInput{
+					TxHash:    txHashBytes,
+					Index:     index,
+					Signature: address,
+				}
+				newTXInput = append(newTXInput, tXInput)
+			}
+		}
+		tXOutput := TXOutput{amountSlice[k], toSlice[k]}
+		newTXOutput = append(newTXOutput, tXOutput)
+		//打包交易的核心操作
+		tXOutput = TXOutput{balance - amountSlice[k], address}
+		newTXOutput = append(newTXOutput, tXOutput)
 	}
-	tXOutput := TXOutput{4, toSlice[0]}
-	//打包交易的核心操作
-	newTXInput := []TXInput{tXInput}
-	newTXOutput := []TXOutput{tXOutput}
-	tXOutput = TXOutput{10 - 4, fromSlice[0]}
-	newTXOutput = append(newTXOutput, tXOutput)
-
 	ts := Transaction{nil, newTXInput, newTXOutput}
 	ts.hash()
 	tss = append(tss, ts)
 	blc.addBlockchain(tss)
+}
+
+func (blc *Blockchain) doUTXOs(utxos []UTXO, amount int) (balance int, indexs map[string][]int) {
+	indexs = make(map[string][]int)
+	for _, utxo := range utxos {
+		balance = balance + utxo.Vout.Value
+		key := hex.EncodeToString(utxo.Hash)
+		indexs[key] = append(indexs[key], utxo.Index)
+	}
+	if amount > balance {
+		fmt.Println("余额不足！")
+		os.Exit(1)
+	}
+	return balance, indexs
 }
 
 //将交易添加进区块链中(内含挖矿操作)
@@ -146,23 +170,26 @@ func (blc *Blockchain) UTXOs(address string) []UTXO {
 					}
 				}
 			}
-
+		Vout:
 			for index, ou := range ts.Vout {
 				if ou.PublicKeyHash == address {
 					if txInputs != nil {
 						if len(txInputs) != 0 {
+							var isUTXO = false
 							for txHash, indexArray := range txInputs {
 								for _, v := range indexArray {
 									if v == index && txHash == hex.EncodeToString(ts.TxHash) {
-										continue
-									} else {
-										txOutputs = append(txOutputs, UTXO{
-											Hash:  ts.TxHash,
-											Index: index,
-											Vout:  ou,
-										})
+										isUTXO = true
+										continue Vout
 									}
 								}
+							}
+							if !isUTXO {
+								txOutputs = append(txOutputs, UTXO{
+									Hash:  ts.TxHash,
+									Index: index,
+									Vout:  ou,
+								})
 							}
 						} else {
 							txOutputs = append(txOutputs, UTXO{
