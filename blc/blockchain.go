@@ -96,12 +96,13 @@ func (blc *Blockchain) CreateTransaction(from, to string, amount string) {
 	}
 
 	var tss []Transaction
-	newTXInput := []TXInput{}
-	newTXOutput := []TXOutput{}
 
 	for k, address := range fromSlice {
-		utxos := blc.UTXOs(address)
-		balance, indexs := blc.doUTXOs(utxos, amountSlice[k])
+		var newTXInput []TXInput
+		var newTXOutput []TXOutput
+		utxos := blc.UTXOs(address, tss)
+		balance, indexs := blc.doUTXOs(utxos, amountSlice[k], address)
+
 		for txHash, indexArray := range indexs {
 			txHashBytes, _ := hex.DecodeString(txHash)
 			for _, index := range indexArray {
@@ -118,22 +119,24 @@ func (blc *Blockchain) CreateTransaction(from, to string, amount string) {
 		//打包交易的核心操作
 		tXOutput = TXOutput{balance - amountSlice[k], address}
 		newTXOutput = append(newTXOutput, tXOutput)
+
+		ts := Transaction{nil, newTXInput, newTXOutput}
+		ts.hash()
+		tss = append(tss, ts)
 	}
-	ts := Transaction{nil, newTXInput, newTXOutput}
-	ts.hash()
-	tss = append(tss, ts)
 	blc.addBlockchain(tss)
 }
 
-func (blc *Blockchain) doUTXOs(utxos []UTXO, amount int) (balance int, indexs map[string][]int) {
-	indexs = make(map[string][]int)
+func (blc *Blockchain) doUTXOs(utxos []UTXO, amount int, address string) (int, map[string][]int) {
+	indexs := make(map[string][]int)
+	var balance int
 	for _, utxo := range utxos {
 		balance = balance + utxo.Vout.Value
 		key := hex.EncodeToString(utxo.Hash)
 		indexs[key] = append(indexs[key], utxo.Index)
 	}
 	if amount > balance {
-		fmt.Println("余额不足！")
+		fmt.Println(address + "余额不足！")
 		os.Exit(1)
 	}
 	return balance, indexs
@@ -153,14 +156,69 @@ func (blc *Blockchain) addBlockchain(transaction []Transaction) {
 	blc.AddBlock(newBlock)
 }
 
-//用户未花费
-func (blc *Blockchain) UTXOs(address string) []UTXO {
+//用户未花费UTXO
+func (blc *Blockchain) UTXOs(address string, tss []Transaction) []UTXO {
 	var txOutputs []UTXO
 	txInputs := make(map[string][]int)
+
+	for _, ts := range tss {
+		for _, in := range ts.Vint {
+			//用户花费UTXO
+			if in.Signature == address {
+				key := hex.EncodeToString(in.TxHash)
+				txInputs[key] = append(txInputs[key], in.Index)
+			}
+		}
+	}
+
+	for _, ts := range tss {
+	tsVout:
+		for index, ou := range ts.Vout {
+			if ou.PublicKeyHash == address {
+				if len(txInputs) == 0 {
+					txOutputs = append(txOutputs, UTXO{
+						Hash:  ts.TxHash,
+						Index: index,
+						Vout:  ou,
+					})
+				} else {
+					for txHash, indexArray := range txInputs {
+						txHashStr := hex.EncodeToString(ts.TxHash)
+						if txHash == txHashStr {
+							var isUTXO bool
+							for _, v := range indexArray {
+								if v == index {
+									isUTXO = true
+									continue tsVout
+								}
+
+								if !isUTXO {
+									txOutputs = append(txOutputs, UTXO{
+										Hash:  ts.TxHash,
+										Index: index,
+										Vout:  ou,
+									})
+								}
+							}
+						} else {
+							txOutputs = append(txOutputs, UTXO{
+								Hash:  ts.TxHash,
+								Index: index,
+								Vout:  ou,
+							})
+						}
+					}
+				}
+			}
+		}
+	}
+
 	bci := NewBlockchainIterator(blc)
 	for {
 		block := bci.Next()
-		for _, ts := range block.Transactions {
+		for i := len(block.Transactions) - 1; i >= 0; i-- {
+			ts := block.Transactions[i]
+			//for _, ts := range block.Transactions {
 			if len(block.PreHash) != 0 {
 				for _, in := range ts.Vint {
 					//用户花费UTXO
@@ -215,7 +273,7 @@ func (blc *Blockchain) UTXOs(address string) []UTXO {
 //传入地址 返回地址余额信息
 func (blc *Blockchain) GetBalance(address string) int {
 	var balance int
-	utxos := blc.UTXOs(address)
+	utxos := blc.UTXOs(address, nil)
 	for _, utxo := range utxos {
 		balance += utxo.Vout.Value
 	}

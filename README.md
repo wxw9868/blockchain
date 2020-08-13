@@ -13,3 +13,6 @@ wxw-blockchain transfer -from [\"wxw\",\"wxw\"] -to [\"bbb\",\"aaa\"] -amount [1
 wxw-blockchain getBalance -address bbb
 
 https://www.upantool.com/jiaocheng/hdd/7252.html
+
+
+wxw-blockchain transfer -from [\"liyuechun\",\"juncheng\"] -to [\"juncheng\",\"liyuechun\"] -amount [3,4]
