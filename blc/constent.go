@@ -10,3 +10,9 @@ const maxInt = math.MaxInt64
 
 //最新区块Hash在数据库中的键
 const LastBlockHashMapping = "lastHash"
+
+const version = byte(0x00)
+
+const checksum = 4
+
+const walletFile = "walletFile.bat"

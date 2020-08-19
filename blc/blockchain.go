@@ -1,8 +1,11 @@
 package blc
 
 import (
+	"bytes"
+	"crypto/ecdsa"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"math/big"
 	"os"
@@ -28,9 +31,9 @@ func NewBlockchain() *Blockchain {
 //创建创世区块交易信息
 func (blc *Blockchain) CreataGenesisTransaction(address string, value int) {
 	//创世区块数据
-	txi := TXInput{[]byte{}, -1, ""}
+	txi := TXInput{[]byte{}, -1, nil, []byte{}}
 
-	txo := TXOutput{value, address}
+	txo := TXOutput{value, Ripemd160Hash(address)}
 
 	ts := Transaction{nil, []TXInput{txi}, []TXOutput{txo}}
 
@@ -70,6 +73,8 @@ func (blc *Blockchain) CreateTransaction(from, to string, amount string) {
 		return
 	}
 
+	wallet, _ := NewWallet()
+
 	var fromSlice []string
 	var toSlice []string
 	var amountSlice []int
@@ -98,6 +103,7 @@ func (blc *Blockchain) CreateTransaction(from, to string, amount string) {
 	var tss []Transaction
 
 	for k, address := range fromSlice {
+		publicKey := wallet.Wallets[address].PublicKey
 		var newTXInput []TXInput
 		var newTXOutput []TXOutput
 		utxos := blc.UTXOs(address, tss)
@@ -109,22 +115,63 @@ func (blc *Blockchain) CreateTransaction(from, to string, amount string) {
 				tXInput := TXInput{
 					TxHash:    txHashBytes,
 					Index:     index,
-					Signature: address,
+					Signature: nil,
+					PublicKey: publicKey,
 				}
 				newTXInput = append(newTXInput, tXInput)
 			}
 		}
-		tXOutput := TXOutput{amountSlice[k], toSlice[k]}
+		tXOutput := TXOutput{amountSlice[k], Ripemd160Hash(toSlice[k])}
 		newTXOutput = append(newTXOutput, tXOutput)
 		//打包交易的核心操作
-		tXOutput = TXOutput{balance - amountSlice[k], address}
+		tXOutput = TXOutput{balance - amountSlice[k], Ripemd160Hash(address)}
 		newTXOutput = append(newTXOutput, tXOutput)
 
 		ts := Transaction{nil, newTXInput, newTXOutput}
 		ts.hash()
+
+		//数字签名
+		blc.SignTransaction(&ts, wallet.Wallets[address].PrivateKey)
+
 		tss = append(tss, ts)
 	}
+
 	blc.addBlockchain(tss)
+}
+
+//数字签名
+func (blc *Blockchain) SignTransaction(ts *Transaction, privateKey *ecdsa.PrivateKey) {
+	prevTss := make(map[string]Transaction)
+
+	for _, vint := range ts.Vint {
+		prevTs, err := blc.FindTransaction(vint.TxHash)
+		if err != nil {
+			log.Fatal(err)
+		}
+		prevTss[hex.EncodeToString(prevTs.TxHash)] = prevTs
+	}
+
+	ts.Sign(privateKey, prevTss)
+}
+
+func (blc *Blockchain) FindTransaction(ID []byte) (Transaction, error) {
+	bci := NewBlockchainIterator(blc)
+
+	for {
+		block := bci.Next()
+
+		for _, ts := range block.Transactions {
+			if bytes.Compare(ts.TxHash, ID) == 0 {
+				return ts, nil
+			}
+		}
+
+		if len(block.PreHash) == 0 {
+			break
+		}
+	}
+
+	return Transaction{}, errors.New("FindTransaction err : Transaction is not found")
 }
 
 func (blc *Blockchain) doUTXOs(utxos []UTXO, amount int, address string) (int, map[string][]int) {
@@ -143,17 +190,38 @@ func (blc *Blockchain) doUTXOs(utxos []UTXO, amount int, address string) (int, m
 }
 
 //将交易添加进区块链中(内含挖矿操作)
-func (blc *Blockchain) addBlockchain(transaction []Transaction) {
+func (blc *Blockchain) addBlockchain(transactions []Transaction) {
 	//查询数据
 	preBlockbyte := blc.BD.View(blc.BD.View([]byte(LastBlockHashMapping), database.BlockBucket), database.BlockBucket)
 	preBlock := Block{}
 	preBlock.Deserialize(preBlockbyte)
 	height := preBlock.Height + 1
+
+	for _, ts := range transactions {
+		if blc.VerifyTransaction(ts) != true {
+			log.Panic("ERROR: Invalid transaction")
+		}
+	}
+
 	//进行挖矿
-	newBlock := NewBlock(transaction, blc.BD.View([]byte(LastBlockHashMapping), database.BlockBucket), height)
+	newBlock := NewBlock(transactions, blc.BD.View([]byte(LastBlockHashMapping), database.BlockBucket), height)
 
 	//将区块添加到本地库中
 	blc.AddBlock(newBlock)
+}
+
+func (blc *Blockchain) VerifyTransaction(ts Transaction) bool {
+	prevTss := make(map[string]Transaction)
+
+	for _, vint := range ts.Vint {
+		prevTs, err := blc.FindTransaction(vint.TxHash)
+		if err != nil {
+			log.Fatal(err)
+		}
+		prevTss[hex.EncodeToString(prevTs.TxHash)] = prevTs
+	}
+
+	return ts.Verify(prevTss)
 }
 
 //用户未花费UTXO
@@ -164,7 +232,7 @@ func (blc *Blockchain) UTXOs(address string, tss []Transaction) []UTXO {
 	for _, ts := range tss {
 		for _, in := range ts.Vint {
 			//用户花费UTXO
-			if in.Signature == address {
+			if in.unLockTXInput(Ripemd160Hash(address)) {
 				key := hex.EncodeToString(in.TxHash)
 				txInputs[key] = append(txInputs[key], in.Index)
 			}
@@ -174,7 +242,7 @@ func (blc *Blockchain) UTXOs(address string, tss []Transaction) []UTXO {
 	for _, ts := range tss {
 	tsVout:
 		for index, ou := range ts.Vout {
-			if ou.PublicKeyHash == address {
+			if ou.unLockTXOutput(address) {
 				if len(txInputs) == 0 {
 					txOutputs = append(txOutputs, UTXO{
 						Hash:  ts.TxHash,
@@ -222,7 +290,7 @@ func (blc *Blockchain) UTXOs(address string, tss []Transaction) []UTXO {
 			if len(block.PreHash) != 0 {
 				for _, in := range ts.Vint {
 					//用户花费UTXO
-					if in.Signature == address {
+					if in.unLockTXInput(Ripemd160Hash(address)) {
 						key := hex.EncodeToString(in.TxHash)
 						txInputs[key] = append(txInputs[key], in.Index)
 					}
@@ -230,7 +298,7 @@ func (blc *Blockchain) UTXOs(address string, tss []Transaction) []UTXO {
 			}
 		Vout:
 			for index, ou := range ts.Vout {
-				if ou.PublicKeyHash == address {
+				if ou.unLockTXOutput(address) {
 					if txInputs != nil {
 						if len(txInputs) != 0 {
 							var isUTXO = false
