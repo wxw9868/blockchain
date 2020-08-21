@@ -136,7 +136,24 @@ func (blc *Blockchain) CreateTransaction(from, to string, amount string) {
 		tss = append(tss, ts)
 	}
 
+	//挖矿奖励(奖励给转账用户)
+	ts := blc.miningReward(fromSlice[0], 10)
+	tss = append(tss, ts)
+
 	blc.addBlockchain(tss)
+}
+
+//挖矿奖励
+func (blc *Blockchain) miningReward(address string, value int) Transaction {
+	//创世区块数据
+	txi := TXInput{[]byte{}, -1, nil, []byte{}}
+
+	txo := TXOutput{value, Ripemd160Hash(address)}
+
+	ts := Transaction{nil, []TXInput{txi}, []TXOutput{txo}}
+
+	ts.hash()
+	return ts
 }
 
 //数字签名
@@ -198,8 +215,10 @@ func (blc *Blockchain) addBlockchain(transactions []Transaction) {
 	height := preBlock.Height + 1
 
 	for _, ts := range transactions {
-		if blc.VerifyTransaction(ts) != true {
-			log.Panic("ERROR: Invalid transaction")
+		if !ts.IsCoinbase() {
+			if blc.VerifyTransaction(ts) != true {
+				log.Panic("ERROR: Invalid transaction")
+			}
 		}
 	}
 
