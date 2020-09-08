@@ -2,21 +2,19 @@ wxw-blockchain createWallet
 
 wxw-blockchain printAddressList
 
-wxw-blockchain genesis -address "13HWMdJDDATndNmKKcmZzimDenXDy2R99v" -value "100"
+wxw-blockchain genesis -address "1LrA2EwCjm3YDhwKcxvCK1bndTrxrdWMhc" -value "100"
 
 wxw-blockchain printChain
 
-wxw-blockchain transfer -from [\"13HWMdJDDATndNmKKcmZzimDenXDy2R99v\"] -to [\"1Hw7UhTaFcETESbad3tpKc6XvWHaJDjeNQ\"] -amount [10]
+wxw-blockchain transfer -from [\"1LrA2EwCjm3YDhwKcxvCK1bndTrxrdWMhc\"] -to [\"14uK5GbYwo9CRegibsfYqepca3UjoXomB1\"] -amount [10]
 
-wxw-blockchain transfer -from [\"aaa\"] -to [\"bbb\"] -amount [4]
+wxw-blockchain transfer -from [\"1LrA2EwCjm3YDhwKcxvCK1bndTrxrdWMhc\",\"14uK5GbYwo9CRegibsfYqepca3UjoXomB1\"] -to [\"14uK5GbYwo9CRegibsfYqepca3UjoXomB1\",\"1LrA2EwCjm3YDhwKcxvCK1bndTrxrdWMhc\"] -amount [15,10]
 
-wxw-blockchain transfer -from [\"wxw\"] -to [\"bbb\"] -amount [10]
+wxw-blockchain resetUTXODB
 
-wxw-blockchain transfer -from [\"wxw\",\"wxw\"] -to [\"bbb\",\"aaa\"] -amount [10,10]
+wxw-blockchain getBalance -address 1LrA2EwCjm3YDhwKcxvCK1bndTrxrdWMhc
 
-wxw-blockchain getBalance -address 13HWMdJDDATndNmKKcmZzimDenXDy2R99v
-
-wxw-blockchain getBalance -address 1Hw7UhTaFcETESbad3tpKc6XvWHaJDjeNQ
+wxw-blockchain getBalance -address 14uK5GbYwo9CRegibsfYqepca3UjoXomB1
 
 https://www.upantool.com/jiaocheng/hdd/7252.html
 

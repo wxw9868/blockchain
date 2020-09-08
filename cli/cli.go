@@ -18,11 +18,12 @@ type CLI struct {
 func printUsage() {
 	fmt.Println("----------------------------------------------------------------------------- ")
 	fmt.Println("Usage:")
-	fmt.Println("\tprintAddressList                                   查看所有钱包地址")
+	fmt.Println("\tprintAddressList                                  查看所有钱包地址")
 	fmt.Println("\tcreateWallet                                      创建钱包")
 	fmt.Println("\tgenesis -address DATA -value DATA                 生成创世区块")
 	fmt.Println("\tgetBalance -address DATA                          查看用户余额")
 	fmt.Println("\ttransfer -from DATA -to DATA -amount DATA         进行转账操作")
+	fmt.Println("\tresetUTXODB                                       遍历区块数据，重置UTXO数据库")
 	fmt.Println("\tprintChain                                        查看所有区块信息")
 	fmt.Println("------------------------------------------------------------------------------")
 }
@@ -33,18 +34,16 @@ func (cli *CLI) Run() {
 	createWalletCmd := flag.NewFlagSet("createWallet", flag.ExitOnError)
 	getBalanceCmd := flag.NewFlagSet("getBalance", flag.ExitOnError)
 	transferCmd := flag.NewFlagSet("transfer", flag.ExitOnError)
+	resetUTXODBCmd := flag.NewFlagSet("resetUTXODB", flag.ExitOnError)
 	printChainCmd := flag.NewFlagSet("printChain", flag.ExitOnError)
 
 	flagGenesisAddress := genesisCmd.String("address", "", "地址")
 	flagGenesisValue := genesisCmd.String("value", "", "金额")
 
-	//flagCreateWallet := createWalletCmd.String("address", "", "地址")
-
 	flagBalance := getBalanceCmd.String("address", "", "地址")
 
 	flagFrom := transferCmd.String("from", "", "付款地址")
 	flagTo := transferCmd.String("to", "", "收款地址")
-
 	flagAmount := transferCmd.String("amount", "", "交易金额")
 
 	if len(os.Args) < 2 {
@@ -75,6 +74,11 @@ func (cli *CLI) Run() {
 		}
 	case "transfer":
 		err := transferCmd.Parse(os.Args[2:])
+		if err != nil {
+			log.Panic(err)
+		}
+	case "resetUTXODB":
+		err := resetUTXODBCmd.Parse(os.Args[2:])
 		if err != nil {
 			log.Panic(err)
 		}
@@ -125,6 +129,10 @@ func (cli *CLI) Run() {
 			printUsage()
 			os.Exit(1)
 		}
+		if !blc.IsVaildBitcoinAddress(*flagBalance) {
+			log.Errorf("地址格式不正确：%s\n", *flagBalance)
+			os.Exit(1)
+		}
 		cli.getBalance(*flagBalance)
 	}
 
@@ -142,6 +150,10 @@ func (cli *CLI) Run() {
 			os.Exit(1)
 		}
 		cli.transfer(*flagFrom, *flagTo, *flagAmount)
+	}
+
+	if resetUTXODBCmd.Parsed() {
+		cli.resetUTXODB()
 	}
 
 	if printChainCmd.Parsed() {

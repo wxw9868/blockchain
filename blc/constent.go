@@ -2,6 +2,9 @@ package blc
 
 import "math"
 
+//当前本地监听端口
+var ListenPort string = "9000"
+
 //挖矿难度值
 var TargetBits uint = 16
 

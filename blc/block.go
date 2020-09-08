@@ -3,6 +3,7 @@ package blc
 import (
 	"bytes"
 	"encoding/gob"
+	"math/big"
 	"time"
 
 	log "github.com/corgi-kx/logcustom"
@@ -75,4 +76,13 @@ func (v *Block) Deserialize(d []byte) {
 	if err != nil {
 		log.Panic(err)
 	}
+}
+
+func isGenesisBlock(block *Block) bool {
+	var hashInt big.Int
+	hashInt.SetBytes(block.PreHash)
+	if big.NewInt(0).Cmp(&hashInt) == 0 {
+		return true
+	}
+	return false
 }

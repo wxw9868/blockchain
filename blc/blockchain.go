@@ -31,7 +31,7 @@ func NewBlockchain() *Blockchain {
 //创建创世区块交易信息
 func (blc *Blockchain) CreataGenesisTransaction(address string, value int) {
 	//创世区块数据
-	txi := TXInput{[]byte{}, -1, nil, []byte{}}
+	txi := TXInput{[]byte{}, -1, nil, nil}
 
 	txo := TXOutput{value, Ripemd160Hash(address)}
 
@@ -42,6 +42,10 @@ func (blc *Blockchain) CreataGenesisTransaction(address string, value int) {
 	tss := []Transaction{ts}
 	//开始生成区块链的第一个区块
 	blc.newGenesisBlockchain(tss)
+
+	//重置utxo数据库，将创世数据存入
+	utxos := UTXOHandle{blc}
+	utxos.ResetUTXODataBase()
 }
 
 func (blc *Blockchain) newGenesisBlockchain(transaction []Transaction) {
@@ -73,8 +77,6 @@ func (blc *Blockchain) CreateTransaction(from, to string, amount string) {
 		return
 	}
 
-	wallet, _ := NewWallet()
-
 	var fromSlice []string
 	var toSlice []string
 	var amountSlice []int
@@ -101,13 +103,50 @@ func (blc *Blockchain) CreateTransaction(from, to string, amount string) {
 	}
 
 	var tss []Transaction
-
+	wallet, _ := NewWallet()
 	for k, address := range fromSlice {
 		publicKey := wallet.Wallets[address].PublicKey
+
+		u := UTXOHandle{blc}
+		//获取数据库中的未消费的utxo
+		utxos := u.findUTXOFromAddress(address)
+		if len(utxos) == 0 {
+			log.Errorf("%s 余额为0,不能进行转帐操作", address)
+			return
+		}
+		//将utxos添加上未打包进区块的交易信息
+		if tss != nil {
+			for _, ts := range tss {
+				//先添加未花费utxo 如果有的话就不添加
+			tagVout:
+				for index, vOut := range ts.Vout {
+					if bytes.Compare(vOut.PublicKeyHash, PublicKeyHash(publicKey)) != 0 {
+						continue
+					}
+					for _, utxo := range utxos {
+						if bytes.Equal(ts.TxHash, utxo.Hash) && index == utxo.Index {
+							continue tagVout
+						}
+					}
+					utxos = append(utxos, &UTXO{ts.TxHash, index, vOut})
+				}
+				//剔除已花费的utxo
+				for _, vInt := range ts.Vint {
+					for index, utxo := range utxos {
+						if bytes.Equal(vInt.TxHash, utxo.Hash) && vInt.Index == utxo.Index {
+							utxos = append(utxos[:index], utxos[index+1:]...)
+						}
+					}
+				}
+			}
+		}
+
+		//utxos := blc.UTXOs(address, tss)
+		balance, indexs := blc.doUTXOs(utxos, amountSlice[k], address)
+
+		//打包交易的核心操作
 		var newTXInput []TXInput
 		var newTXOutput []TXOutput
-		utxos := blc.UTXOs(address, tss)
-		balance, indexs := blc.doUTXOs(utxos, amountSlice[k], address)
 
 		for txHash, indexArray := range indexs {
 			txHashBytes, _ := hex.DecodeString(txHash)
@@ -131,7 +170,7 @@ func (blc *Blockchain) CreateTransaction(from, to string, amount string) {
 		ts.hash()
 
 		//数字签名
-		blc.SignTransaction(&ts, wallet.Wallets[address].PrivateKey)
+		blc.SignTransaction(&ts, wallet.Wallets[address].PrivateKey, tss)
 
 		tss = append(tss, ts)
 	}
@@ -157,11 +196,15 @@ func (blc *Blockchain) miningReward(address string, value int) Transaction {
 }
 
 //数字签名
-func (blc *Blockchain) SignTransaction(ts *Transaction, privateKey *ecdsa.PrivateKey) {
+func (blc *Blockchain) SignTransaction(ts *Transaction, privateKey *ecdsa.PrivateKey, tss []Transaction) {
+	if ts.IsCoinbase() {
+		return
+	}
+
 	prevTss := make(map[string]Transaction)
 
 	for _, vint := range ts.Vint {
-		prevTs, err := blc.FindTransaction(vint.TxHash)
+		prevTs, err := blc.FindTransaction(vint.TxHash, tss)
 		if err != nil {
 			log.Fatal(err)
 		}
@@ -171,7 +214,13 @@ func (blc *Blockchain) SignTransaction(ts *Transaction, privateKey *ecdsa.Privat
 	ts.Sign(privateKey, prevTss)
 }
 
-func (blc *Blockchain) FindTransaction(ID []byte) (Transaction, error) {
+func (blc *Blockchain) FindTransaction(ID []byte, tss []Transaction) (Transaction, error) {
+	for _, ts := range tss {
+		if bytes.Compare(ts.TxHash, ID) == 0 {
+			return ts, nil
+		}
+	}
+
 	bci := NewBlockchainIterator(blc)
 
 	for {
@@ -191,7 +240,7 @@ func (blc *Blockchain) FindTransaction(ID []byte) (Transaction, error) {
 	return Transaction{}, errors.New("FindTransaction err : Transaction is not found")
 }
 
-func (blc *Blockchain) doUTXOs(utxos []UTXO, amount int, address string) (int, map[string][]int) {
+func (blc *Blockchain) doUTXOs(utxos []*UTXO, amount int, address string) (int, map[string][]int) {
 	indexs := make(map[string][]int)
 	var balance int
 	for _, utxo := range utxos {
@@ -207,33 +256,40 @@ func (blc *Blockchain) doUTXOs(utxos []UTXO, amount int, address string) (int, m
 }
 
 //将交易添加进区块链中(内含挖矿操作)
-func (blc *Blockchain) addBlockchain(transactions []Transaction) {
+func (blc *Blockchain) addBlockchain(transaction []Transaction) {
 	//查询数据
 	preBlockbyte := blc.BD.View(blc.BD.View([]byte(LastBlockHashMapping), database.BlockBucket), database.BlockBucket)
 	preBlock := Block{}
 	preBlock.Deserialize(preBlockbyte)
 	height := preBlock.Height + 1
 
-	for _, ts := range transactions {
+	_tss := []Transaction{}
+	for _, ts := range transaction {
 		if !ts.IsCoinbase() {
-			if blc.VerifyTransaction(ts) != true {
+			if !blc.VerifyTransaction(ts, _tss) {
 				log.Panic("ERROR: Invalid transaction")
 			}
+			_tss = append(_tss, ts)
 		}
 	}
 
 	//进行挖矿
-	newBlock := NewBlock(transactions, blc.BD.View([]byte(LastBlockHashMapping), database.BlockBucket), height)
+	newBlock := NewBlock(transaction, blc.BD.View([]byte(LastBlockHashMapping), database.BlockBucket), height)
 
 	//将区块添加到本地库中
 	blc.AddBlock(newBlock)
+
+	//将数据同步到UTXO数据库中
+	u := UTXOHandle{blc}
+	//更新数据
+	u.Synchrodata()
 }
 
-func (blc *Blockchain) VerifyTransaction(ts Transaction) bool {
+func (blc *Blockchain) VerifyTransaction(ts Transaction, tss []Transaction) bool {
 	prevTss := make(map[string]Transaction)
 
 	for _, vint := range ts.Vint {
-		prevTs, err := blc.FindTransaction(vint.TxHash)
+		prevTs, err := blc.FindTransaction(vint.TxHash, tss)
 		if err != nil {
 			log.Fatal(err)
 		}
@@ -360,11 +416,91 @@ func (blc *Blockchain) UTXOs(address string, tss []Transaction) []UTXO {
 //传入地址 返回地址余额信息
 func (blc *Blockchain) GetBalance(address string) int {
 	var balance int
-	utxos := blc.UTXOs(address, nil)
-	for _, utxo := range utxos {
-		balance += utxo.Vout.Value
+	uHandle := UTXOHandle{blc}
+	utxos := uHandle.findUTXOFromAddress(address)
+	for _, v := range utxos {
+		balance += v.Vout.Value
 	}
 	return balance
+}
+
+//查找数据库中全部未花费的UTXO
+func (blc *Blockchain) findAllUTXOs() map[string]*TXOuputs {
+	bci := NewBlockchainIterator(blc)
+
+	// 存储已花费的UTXO的信息
+	spentableUTXOsMap := make(map[string][]*TXInput)
+
+	// 存储未花费的UTXO的信息
+	utxoMaps := make(map[string]*TXOuputs)
+
+	for {
+		block := bci.Next()
+
+		for i := len(block.Transactions) - 1; i >= 0; i-- {
+			tXOuputs := &TXOuputs{[]*UTXO{}}
+
+			tx := block.Transactions[i]
+
+			// 判断是否为创世块
+			if !tx.IsCoinbase() {
+				for _, txInput := range tx.Vint {
+					txHash := hex.EncodeToString(txInput.TxHash)
+					spentableUTXOsMap[txHash] = append(spentableUTXOsMap[txHash], &txInput)
+				}
+			}
+
+			txHash := hex.EncodeToString(tx.TxHash)
+
+		WorkOutLoop:
+			for index, out := range tx.Vout {
+
+				tXInputs := spentableUTXOsMap[txHash]
+
+				if len(tXInputs) > 0 {
+
+					isSpent := false
+
+					for _, in := range tXInputs {
+						outPublicKey := out.PublicKeyHash
+						inPublicKey := in.PublicKey
+
+						if bytes.Compare(outPublicKey, PublicKeyHash(inPublicKey)) == 0 {
+							if index == in.Index {
+								isSpent = true
+								continue WorkOutLoop
+							}
+						}
+					}
+					if !isSpent {
+						utxo := &UTXO{
+							Hash:  tx.TxHash,
+							Index: index,
+							Vout:  out,
+						}
+						tXOuputs.UTXOS = append(tXOuputs.UTXOS, utxo)
+					}
+				} else {
+					utxo := &UTXO{
+						Hash:  tx.TxHash,
+						Index: index,
+						Vout:  out,
+					}
+					tXOuputs.UTXOS = append(tXOuputs.UTXOS, utxo)
+				}
+			}
+			// 设置键值对
+			utxoMaps[txHash] = tXOuputs
+		}
+
+		// 找到创世区块时推出
+		var hashInt big.Int
+		hashInt.SetBytes(block.PreHash)
+		if hashInt.Cmp(big.NewInt(0)) == 0 {
+			break
+		}
+	}
+	return utxoMaps
 }
 
 //打印区块链详细信息
