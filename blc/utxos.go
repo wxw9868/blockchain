@@ -24,7 +24,6 @@ func (u *UTXOHandle) ResetUTXODataBase() {
 		log.Debug("找不到区块,暂不重置UTXO数据库")
 		return
 	}
-	fmt.Println("utxosMap: ", utxosMap)
 	//删除旧的UTXO数据库
 	if database.IsBucketExist(u.BC.BD, database.UTXOBucket) {
 		u.BC.BD.DeleteBucket(database.UTXOBucket)
@@ -82,26 +81,25 @@ func (u *UTXOHandle) Synchrodata() {
 
 	block := bci.Next()
 
-	ins := []*TXInput{}
-
+	// 存储未花费的UTXO
 	outsMap := make(map[string]*TXOuputs)
 
 	// 找到所有我要删除的数据
+	txInputs := []*TXInput{}
 	for _, ts := range block.Transactions {
 		for _, in := range ts.Vint {
-			ins = append(ins, &in)
+			txInputs = append(txInputs, &in)
 		}
 	}
+	fmt.Println("txInputs1: ", txInputs)
 
 	for _, ts := range block.Transactions {
-
 		utxos := []*UTXO{}
-
 		for index, out := range ts.Vout {
 			isSpent := false
-			for _, in := range ins {
-				publicKeyHash := PublicKeyHash(in.PublicKey)
-				if index == in.Index && bytes.Equal(ts.TxHash, in.TxHash) && bytes.Equal(out.PublicKeyHash, publicKeyHash) {
+			for _, txInput := range txInputs {
+				publicKeyHash := PublicKeyHash(txInput.PublicKey)
+				if index == txInput.Index && bytes.Equal(ts.TxHash, txInput.TxHash) && bytes.Equal(out.PublicKeyHash, publicKeyHash) {
 					isSpent = true
 					continue
 				}
@@ -118,6 +116,7 @@ func (u *UTXOHandle) Synchrodata() {
 			outsMap[txHash] = &TXOuputs{utxos}
 		}
 	}
+	fmt.Println("outsMap1: ", outsMap)
 
 	var DBFileName = "blockchain_" + ListenPort + ".db"
 	db, err := bolt.Open(DBFileName, 0600, nil)
@@ -126,36 +125,40 @@ func (u *UTXOHandle) Synchrodata() {
 	}
 	err = db.Update(func(tx *bolt.Tx) error {
 		b := tx.Bucket([]byte(database.UTXOBucket))
-
+		fmt.Println("b: ", b)
 		if b != nil {
-
 			// 删除
-			for _, in := range ins {
-				txOutputsBytes := b.Get(in.TxHash)
-
+			fmt.Println("txInputs2: ", txInputs)
+			for _, txInput := range txInputs {
+				txOutputsBytes := b.Get(txInput.TxHash)
+				fmt.Println("txOutputsBytes: ", txOutputsBytes)
 				if len(txOutputsBytes) == 0 {
 					continue
 				}
-
 				txOutputs := u.dserialize(txOutputsBytes)
+				fmt.Println("txOutputs: ", txOutputs)
 
 				utxos := []*UTXO{}
 
 				// 判断是否需要
 				isNeedDelete := false
-
+				fmt.Println("txOutputs.UTXOS: ", txOutputs.UTXOS)
 				for _, utxo := range txOutputs.UTXOS {
-					if in.Index == utxo.Index && bytes.Equal(utxo.Vout.PublicKeyHash, PublicKeyHash(in.PublicKey)) {
+					if txInput.Index == utxo.Index && bytes.Equal(utxo.Vout.PublicKeyHash, PublicKeyHash(txInput.PublicKey)) {
 						isNeedDelete = true
 					} else {
 						utxos = append(utxos, utxo)
 					}
 				}
-
+				fmt.Println("isNeedDelete: ", isNeedDelete)
 				if isNeedDelete {
-					b.Delete(in.TxHash)
+					err = b.Delete(txInput.TxHash)
+					if err != nil {
+						panic(err)
+					}
+					fmt.Println("utxos:", utxos)
 					if len(utxos) > 0 {
-						txHash := hex.EncodeToString(in.TxHash)
+						txHash := hex.EncodeToString(txInput.TxHash)
 						preTXOutputs := outsMap[txHash]
 						preTXOutputs.UTXOS = append(preTXOutputs.UTXOS, utxos...)
 						outsMap[txHash] = preTXOutputs
@@ -163,16 +166,16 @@ func (u *UTXOHandle) Synchrodata() {
 				}
 			}
 
+			fmt.Println("outsMap2: ", outsMap)
+
 			// 新增
 			for keyHash, outPuts := range outsMap {
 				keyHashBytes, _ := hex.DecodeString(keyHash)
 				b.Put(keyHashBytes, u.serialize(outPuts))
 			}
 		}
-
 		return nil
 	})
-
 	if err != nil {
 		panic(err)
 	}

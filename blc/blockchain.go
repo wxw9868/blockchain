@@ -281,8 +281,9 @@ func (blc *Blockchain) addBlockchain(transaction []Transaction) {
 
 	//将数据同步到UTXO数据库中
 	u := UTXOHandle{blc}
+	u.ResetUTXODataBase()
 	//更新数据
-	u.Synchrodata()
+	//u.Synchrodata()
 }
 
 func (blc *Blockchain) VerifyTransaction(ts Transaction, tss []Transaction) bool {
