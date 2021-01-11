@@ -25,7 +25,7 @@ func (u *UTXOHandle) ResetUTXODataBase() {
 		return
 	}
 	//删除旧的UTXO数据库
-	if database.IsBucketExist(u.BC.BD, database.UTXOBucket) {
+	if database.IsBucketExist(database.UTXOBucket) {
 		u.BC.BD.DeleteBucket(database.UTXOBucket)
 	}
 
@@ -38,7 +38,8 @@ func (u *UTXOHandle) ResetUTXODataBase() {
 //根据地址未消费的utxo
 func (u *UTXOHandle) findUTXOFromAddress(address string) []*UTXO {
 	publicKeyHash := Ripemd160Hash(address)
-	utxosSlice := []*UTXO{}
+	var utxosSlice []*UTXO
+
 	//获取bolt迭代器，遍历整个UTXO数据库
 	//打开数据库
 	var DBFileName = "blockchain_" + ListenPort + ".db"
@@ -85,7 +86,7 @@ func (u *UTXOHandle) Synchrodata() {
 	outsMap := make(map[string]*TXOuputs)
 
 	// 找到所有我要删除的数据
-	txInputs := []*TXInput{}
+	var txInputs []*TXInput
 	for _, ts := range block.Transactions {
 		for _, in := range ts.Vint {
 			txInputs = append(txInputs, &in)
@@ -94,7 +95,7 @@ func (u *UTXOHandle) Synchrodata() {
 	fmt.Println("txInputs1: ", txInputs)
 
 	for _, ts := range block.Transactions {
-		utxos := []*UTXO{}
+		var utxos []*UTXO
 		for index, out := range ts.Vout {
 			isSpent := false
 			for _, txInput := range txInputs {
@@ -138,7 +139,7 @@ func (u *UTXOHandle) Synchrodata() {
 				txOutputs := u.dserialize(txOutputsBytes)
 				fmt.Println("txOutputs: ", txOutputs)
 
-				utxos := []*UTXO{}
+				var utxos []*UTXO
 
 				// 判断是否需要
 				isNeedDelete := false
@@ -171,7 +172,7 @@ func (u *UTXOHandle) Synchrodata() {
 			// 新增
 			for keyHash, outPuts := range outsMap {
 				keyHashBytes, _ := hex.DecodeString(keyHash)
-				b.Put(keyHashBytes, u.serialize(outPuts))
+				_ = b.Put(keyHashBytes, u.serialize(outPuts))
 			}
 		}
 		return nil

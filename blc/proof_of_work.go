@@ -83,7 +83,7 @@ func (p *proofOfWork) Verify() bool {
 	return false
 }
 
-//将上一区块hashh和本区块的数据、时间戳、难度位数、随机数 拼接成字节数组
+//将上一区块hash和本区块的数据、时间戳、难度位数、随机数 拼接成字节数组
 func (p *proofOfWork) jointData(nonce int64) (data []byte) {
 	preHash := p.Block.PreHash
 	timeStampByte := util.Int64ToBytes(p.Block.TimeStamp)
@@ -91,7 +91,7 @@ func (p *proofOfWork) jointData(nonce int64) (data []byte) {
 	nonceByte := util.Int64ToBytes(nonce)
 	targetBitsByte := util.Int64ToBytes(int64(TargetBits))
 	//拼接成交易数组
-	tBytes := []byte{}
+	var tBytes []byte
 	for _, v := range p.Block.Transactions {
 		tBytes = v.getTransBytes() //这里为什么要用到自己写的方法，而不是gob序列化，是因为gob同样的数据序列化后的字节数组有可能不一致，无法用于hash验证
 	}

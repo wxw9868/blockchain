@@ -44,7 +44,7 @@ func (t *Transaction) getTransBytes() []byte {
 		log.Panic("交易信息不完整，无法拼接成字节数组")
 		return nil
 	}
-	transBytes := []byte{}
+	var transBytes []byte
 	transBytes = append(transBytes, t.TxHash...)
 	for _, v := range t.Vint {
 		transBytes = append(transBytes, v.TxHash...)
@@ -94,8 +94,8 @@ func (t *Transaction) Sign(privateKey *ecdsa.PrivateKey, prevTss map[string]Tran
 	}
 }
 
-func (tx Transaction) Hash() []byte {
-	txCopy := tx
+func (t Transaction) Hash() []byte {
+	txCopy := t
 	txCopy.TxHash = []byte{}
 	hash := sha256.Sum256(txCopy.Serialize())
 	return hash[:]
@@ -141,7 +141,7 @@ func (t *Transaction) Verify(prevTss map[string]Transaction) bool {
 		x.SetBytes(vint.PublicKey[:keyLen/2])
 		y.SetBytes(vint.PublicKey[keyLen/2:])
 
-		rawPublicKey := ecdsa.PublicKey{curve, &x, &y}
+		rawPublicKey := ecdsa.PublicKey{Curve: curve, X: &x, Y: &y}
 		if !ecdsa.Verify(&rawPublicKey, txCopy.TxHash, &r, &s) {
 			return false
 		}

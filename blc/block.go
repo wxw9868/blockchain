@@ -3,7 +3,6 @@ package blc
 import (
 	"bytes"
 	"encoding/gob"
-	"math/big"
 	"time"
 
 	log "github.com/corgi-kx/logcustom"
@@ -70,19 +69,19 @@ func (b *Block) Serialize() []byte {
 }
 
 //反序列化
-func (v *Block) Deserialize(d []byte) {
+func (b *Block) Deserialize(d []byte) {
 	decoder := gob.NewDecoder(bytes.NewReader(d))
-	err := decoder.Decode(v)
+	err := decoder.Decode(b)
 	if err != nil {
 		log.Panic(err)
 	}
 }
 
-func isGenesisBlock(block *Block) bool {
-	var hashInt big.Int
-	hashInt.SetBytes(block.PreHash)
-	if big.NewInt(0).Cmp(&hashInt) == 0 {
-		return true
-	}
-	return false
-}
+//func isGenesisBlock(block *Block) bool {
+//	var hashInt big.Int
+//	hashInt.SetBytes(block.PreHash)
+//	if big.NewInt(0).Cmp(&hashInt) == 0 {
+//		return true
+//	}
+//	return false
+//}

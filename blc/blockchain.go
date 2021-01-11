@@ -263,7 +263,7 @@ func (blc *Blockchain) addBlockchain(transaction []Transaction) {
 	preBlock.Deserialize(preBlockbyte)
 	height := preBlock.Height + 1
 
-	_tss := []Transaction{}
+	var _tss []Transaction
 	for _, ts := range transaction {
 		if !ts.IsCoinbase() {
 			if !blc.VerifyTransaction(ts, _tss) {
@@ -301,6 +301,7 @@ func (blc *Blockchain) VerifyTransaction(ts Transaction, tss []Transaction) bool
 }
 
 //用户未花费UTXO
+//goland:noinspection ALL
 func (blc *Blockchain) UTXOs(address string, tss []Transaction) []UTXO {
 	var txOutputs []UTXO
 	txInputs := make(map[string][]int)
@@ -439,7 +440,7 @@ func (blc *Blockchain) findAllUTXOs() map[string]*TXOuputs {
 		block := bci.Next()
 
 		for i := len(block.Transactions) - 1; i >= 0; i-- {
-			tXOuputs := &TXOuputs{[]*UTXO{}}
+			tXOuputs := &TXOuputs{UTXOS: []*UTXO{}}
 
 			tx := block.Transactions[i]
 
@@ -526,6 +527,7 @@ func (blc *Blockchain) PrintAllBlockInfo() {
 			}
 			fmt.Println("  	  tx_output：")
 			for index, vOut := range v.Vout {
+
 				fmt.Printf("			金额:    %d    \n", vOut.Value)
 				fmt.Printf("			地址:    %s\n", vOut.PublicKeyHash)
 				if len(v.Vout) != 1 && index != len(v.Vout)-1 {

@@ -7,6 +7,7 @@ import (
 )
 
 //存入数据
+//goland:noinspection ALL
 func (bd *BlockchainDB) Put(k, v []byte, bt BucketType) {
 	var DBFileName = "blockchain_" + ListenPort + ".db"
 	db, err := bolt.Open(DBFileName, 0600, nil)
@@ -36,6 +37,7 @@ func (bd *BlockchainDB) Put(k, v []byte, bt BucketType) {
 }
 
 //查看数据
+//goland:noinspection ALL
 func (bd *BlockchainDB) View(k []byte, bt BucketType) []byte {
 	var DBFileName = "blockchain_" + ListenPort + ".db"
 	db, err := bolt.Open(DBFileName, 0600, nil)
@@ -44,7 +46,7 @@ func (bd *BlockchainDB) View(k []byte, bt BucketType) []byte {
 		log.Panic(err)
 	}
 
-	result := []byte{}
+	var result []byte
 	err = db.View(func(tx *bolt.Tx) error {
 		bucket := tx.Bucket([]byte(bt))
 		if bucket == nil {
@@ -65,6 +67,7 @@ func (bd *BlockchainDB) View(k []byte, bt BucketType) []byte {
 }
 
 //删除数据
+//goland:noinspection ALL
 func (bd *BlockchainDB) Delete(k []byte, bt BucketType) bool {
 	var DBFileName = "blockchain_" + ListenPort + ".db"
 	db, err := bolt.Open(DBFileName, 0600, nil)
@@ -92,6 +95,7 @@ func (bd *BlockchainDB) Delete(k []byte, bt BucketType) bool {
 }
 
 //删除仓库
+//goland:noinspection ALL
 func (bd *BlockchainDB) DeleteBucket(bt BucketType) bool {
 	var DBFileName = "blockchain_" + ListenPort + ".db"
 	db, err := bolt.Open(DBFileName, 0600, nil)
